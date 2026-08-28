@@ -1,0 +1,13 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Board selection for ESP32_Display_Panel 0.1.8.
+ */
+
+#pragma once
+
+#define ESP_PANEL_USE_SUPPORTED_BOARD (0)
+
+#define ESP_PANEL_BOARD_SUPPORTED_FILE_VERSION_MAJOR 0
+#define ESP_PANEL_BOARD_SUPPORTED_FILE_VERSION_MINOR 4
+#define ESP_PANEL_BOARD_SUPPORTED_FILE_VERSION_PATCH 0

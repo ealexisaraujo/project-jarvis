@@ -1,0 +1,28 @@
+# Repository-local Arduino toolchain and generated firmware
+/.arduino/
+/build/
+
+# Generated device captures and local recovery images
+/artifacts/
+/backups/
+
+# Local credentials (keep secrets.example.h tracked)
+/firmware/project_jarvis/secrets.h
+
+# Python caches and local virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editor and operating-system metadata
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local logs and temporary files
+*.log
+*.tmp
