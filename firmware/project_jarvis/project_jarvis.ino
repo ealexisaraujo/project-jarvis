@@ -4,6 +4,7 @@
 #include "display.h"
 #include "time_sync_service.h"
 #include "ui_shell.h"
+#include "weather_service.h"
 #include "wifi_service.h"
 
 namespace {
@@ -104,11 +105,13 @@ void setup() {
   Serial.printf("Flash: %u bytes, PSRAM: %u bytes\n",
                 ESP.getFlashChipSize(),
                 ESP.getPsramSize());
-  Serial.println("Milestone 4.1: initializing display, touch, RTC, UI, WiFi, and NTP");
+  Serial.println(
+      "Milestone 4.2: initializing display, touch, RTC, UI, WiFi, NTP, and weather");
   display_online = display_begin();
   if (display_online) {
     wifi_service_begin();
     time_sync_service_begin();
+    weather_service_begin();
   }
   const bool boot_ready = display_online && display_touch_online();
   Serial.printf("boot_status=%s\n", boot_ready ? "ready" : "degraded");
@@ -118,6 +121,7 @@ void loop() {
   process_serial_commands();
   wifi_service_loop();
   time_sync_service_loop();
+  weather_service_loop();
 
   const uint32_t now = millis();
   if (now - last_heartbeat_ms >= kHeartbeatIntervalMs) {

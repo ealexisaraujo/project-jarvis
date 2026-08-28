@@ -4,11 +4,11 @@
 #include <esp_sntp.h>
 #include <time.h>
 
+#include "location_config.h"
 #include "rtc_pcf85063.h"
 #include "wifi_service.h"
 
 namespace {
-constexpr char kTimezone[] = "MST7";
 constexpr char kPrimaryNtpServer[] = "pool.ntp.org";
 constexpr char kSecondaryNtpServer[] = "time.nist.gov";
 constexpr uint16_t kMinimumSynchronizedYear = 2024;
@@ -96,9 +96,13 @@ void time_sync_service_loop() {
 
   waiting_wifi_reported = false;
   if (!ntp_requested) {
-    configTzTime(kTimezone, kPrimaryNtpServer, kSecondaryNtpServer);
+    const LocationProfile& location = active_location_profile();
+    configTzTime(location.posix_timezone,
+                 kPrimaryNtpServer,
+                 kSecondaryNtpServer);
     ntp_requested = true;
-    Serial.println("time_sync_status=requested timezone=America_Phoenix");
+    Serial.printf("time_sync_status=requested timezone=%s\n",
+                  location.iana_timezone);
   }
 
   if (sntp_get_sync_status() != SNTP_SYNC_STATUS_COMPLETED) {

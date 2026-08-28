@@ -850,3 +850,97 @@ text and red/hour-arc pixel counts, while consecutive differences were confined
 to the advancing blue seconds arc. An image-viewer optimization initially made
 some consecutively opened frames appear partial; direct PNG pixel comparison
 proved the stored captures themselves were complete.
+
+## Milestone 4.2: live Ashford weather
+
+### Objective
+
+Replace the Weather tile's Wi-Fi placeholder with current weather for Ashford,
+Kent, United Kingdom. Preserve the proven Clock, NTP-to-RTC synchronization,
+Wi-Fi, display, touch, tile navigation, and screenshot behavior.
+
+The location is the first United Kingdom result from Open-Meteo geocoding:
+Ashford, Kent at latitude `51.14648`, longitude `0.87376`, timezone
+`Europe/London`. The weather provider is Open-Meteo's public Forecast API and
+requires no API key.
+
+### Data and presentation
+
+- Request only current `temperature_2m`, `relative_humidity_2m`,
+  `weather_code`, `wind_speed_10m`, and `surface_pressure`, with
+  `timezone=Europe/London` and `forecast_days=1`.
+- Keep the city label `Ashford`. Show rounded Celsius as ASCII text such as
+  `17 C`; never use a literal degree sign because the configured LVGL fonts do
+  not contain it.
+- Map Open-Meteo's documented WMO codes to concise ASCII descriptions: clear,
+  mainly clear, partly cloudy, overcast, fog, drizzle, freezing drizzle, rain,
+  freezing rain, snow, snow grains, rain showers, snow showers, thunderstorm,
+  and thunderstorm with hail. Unknown codes render `Unknown conditions`.
+- Fit humidity, wind, and pressure within the circular safe area using a concise
+  ASCII line such as `H 92%  W 11 km/h  P 1002 hPa`.
+- Show the provider's local observation time as `Updated HH:MM`.
+- Use change-aware `lv_label_set_text()` calls and libc `snprintf()` buffers.
+  Never pass `%f` to an LVGL formatting function and never put non-ASCII text
+  in a label.
+
+### Service architecture
+
+- Add `weather_service.h/.cpp` with a fixed-size snapshot API. The Arduino main
+  loop starts/polls the service; the LVGL timer only reads a snapshot and
+  updates widgets on the normal LVGL thread.
+- HTTPS and JSON parsing must run in a bounded FreeRTOS worker task so DNS, TLS,
+  and HTTP cannot block the display loop or RTC Clock. The worker must never
+  call LVGL. Protect fixed-size shared state with a short critical section or
+  equivalent synchronization; never expose heap-owned strings to the UI.
+- Use the ESP32 Arduino core's `WiFiClientSecure` and `HTTPClient`. This request
+  carries no credential or private payload; if certificate verification is not
+  practical with the pinned core, explicitly isolate and document insecure TLS
+  as a prototype limitation rather than silently falling back to plaintext.
+- Pin ArduinoJson `7.4.3` in `scripts/bootstrap.sh` and deserialize directly
+  from the bounded HTTP stream. Do not add an unbounded response `String`.
+- Validate HTTP 200, JSON success, presence/type of every required field, and
+  plausible ranges before publishing: temperature -90..60 C, humidity 0..100%,
+  weather code 0..99, wind 0..400 km/h, pressure 800..1100 hPa, and ISO local
+  time containing `T` plus `HH:MM`.
+- Fetch immediately after Wi-Fi becomes online, refresh no more often than
+  every 15 minutes after success, and retry no more often than every 60 seconds
+  after failure. Handle `millis()` rollover with subtraction-based deadlines.
+- Preserve the last valid reading across a later network failure. Distinguish
+  waiting for Wi-Fi, fetching, online, failed, and offline-cached UI states.
+- Emit concise credential-free state lines such as
+  `weather_status=waiting_wifi|fetching|online|failed|offline_cached`; a failure
+  may include an HTTP/error code but never an SSID, password, URL query secret,
+  or response body.
+
+### Integration constraints
+
+- Start `weather_service_begin()` only after the existing display/UI and Wi-Fi
+  services have been initialized; call `weather_service_loop()` from the main
+  Arduino loop.
+- Split Clock Wi-Fi widgets from Weather widgets. The existing Clock card must
+  remain clickable and continue to show Wi-Fi state; Weather labels must come
+  from the weather-service snapshot once the service starts.
+- Preserve all LCD/touch/RTC drivers, pins, setup order through
+  `display_begin()`, 80 MHz QSPI, byte swap, LVGL buffers, PSRAM screenshot
+  buffers/protocol, six tiles, fonts, Clock geometry, and `LV_MEM_SIZE=64 KiB`.
+- Do not add captive portal, on-screen keyboard, weather icons requiring new
+  glyphs, forecasts, location UI, SD, IMU, audio, microphone, or battery logic.
+- Do not read, expose, modify, or log the ignored `secrets.h`; do not upload,
+  monitor, capture hardware artifacts, commit, or push in the delegated pass.
+
+### Validation and documentation
+
+- Put WMO mapping and ASCII formatting/range helpers in a hardware-free module
+  with host tests for mapping groups, unknown codes, rounding, metric text,
+  observation-time extraction, and invalid ranges.
+- `make test`, `make build NO_SECRETS=1`,
+  `python3 scripts/capture_screen.py --self-test`, and
+  `python3 -m py_compile scripts/capture_screen.py` must pass.
+- Update README and
+  `.context/ctx-08-27-2026-esp32-waveshare-setup.md` with the provider,
+  location, refresh/retry policy, UI states, pinned dependency, TLS limitation
+  if any, and an explicit boundary between software validation and the main
+  session's later hardware upload/runtime/capture evidence.
+- The main session reviews the diff, runs the personalized build, uploads it,
+  monitors weather state and heap, selects tile 1, captures the 360 x 360
+  framebuffer, and visually verifies live values fit the circular safe area.

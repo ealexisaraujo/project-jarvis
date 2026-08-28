@@ -5,13 +5,16 @@
 - **Purpose:** restartable engineering record for the Waveshare ESP32-S3-Touch-LCD-1.85 Project Jarvis firmware and its USB screenshot diagnostic.
 - **Scope:** the accepted LCD/touch hardware profile, reproducible toolchain, runtime and screenshot evidence, recovery guardrails, and next work.
 - **Fresh through:** 2026-08-27 (America/Phoenix).
-- **Current state:** Milestone 4.1 is implemented, uploaded, and hardware-verified on top of the six-tile Milestone 4 shell. A non-blocking service waits for online Wi-Fi, requires completed SNTP in fixed America/Phoenix time (`MST7`), validates local calendar data, writes PCF85063 registers `0x04..0x0A` on shared I2C0, and requires matching readback with a one-second rollover allowance. The board reported successful RTC setting and time synchronization, stayed ready with display/touch online and stable heap, and produced three final Clock captures with correct local date/time, invariant non-seconds layers, and a changing seconds arc.
-- **Next recommended action:** physically tap the Clock Wi-Fi card and swipe left/right across all six tiles, especially beginning a drag on the card. Then choose the first real service for Weather, Bins, Alarm, Radio, or MP3. Do not reopen the confirmed display, touch, or RTC wiring unless new evidence contradicts it.
+- **Current state:** Milestone 4.2 live Ashford weather is implemented and hardware-verified. The first device run exposed chunked-response rejection (`weather_status=failed reason=-1003`); the corrected path lazily decodes chunk framing, accepts unknown decoded length, preserves the exact 4096-byte ceiling, and feeds ArduinoJson directly from a bounded stream. After rebuild/upload, the board progressed `waiting_wifi -> fetching -> online`, kept RTC/time sync, display, and touch online, stabilized near 202.9 KB free heap through 32 seconds, and produced circular-safe live Weather plus regression Clock framebuffers.
+- **Next recommended action:** physically tap the Clock Wi-Fi card and verify horizontal swiping, including a drag begun on the clickable card. Then choose the next service among Bins, Alarm, Radio, and MP3. Exercise Weather failure/retry/offline-cache behavior only when useful. Do not reopen the confirmed display, touch, RTC, or weather transport paths unless new evidence contradicts them.
 
 This file distinguishes historical Milestone 2/3 evidence from Milestone 4
-and 4.1 hardware proof. Both current milestones were built with the ignored
-local secret, uploaded, reset, monitored, and framebuffer-validated on
-2026-08-27. Credentials are intentionally absent from this document.
+and 4.1 hardware proof, the initial Milestone 4.2 failure evidence, and the
+corrected Milestone 4.2 hardware proof. Milestones 4, 4.1, and the final 4.2
+correction were built with the ignored local secret, uploaded, reset,
+monitored, and framebuffer-validated on 2026-08-27. The delegated correction
+pass did not access the secret or hardware; the main validation pass did.
+Credentials are intentionally absent from this document.
 
 ## Confirmed operational profile
 
@@ -118,6 +121,40 @@ freshly synchronized and read back successfully after SNTP completed. Heap
 stabilized at 203,576 bytes from 8 through 26 seconds with display and touch
 remaining online.
 
+A subsequent Milestone 4.2 hardware run supplied this failure evidence:
+
+```text
+weather_status=fetching
+weather_status=failed reason=-1003
+```
+
+The request reached Open-Meteo and received HTTP 200 with
+`Transfer-Encoding: chunked`; `HTTPClient::getSize()` returned `-1` even after
+`useHTTP10(true)`. Error `-1003` therefore came from rejecting an unknown
+response length before parsing, not from a server error or invalid weather
+payload. This run proves the original failure path only. It does not prove a
+successful parse, live values, corrected runtime behavior, heap stability, or
+a live Weather framebuffer.
+
+The corrected build was then uploaded and produced:
+
+```text
+weather_status=waiting_wifi
+boot_status=ready
+wifi_status=online ip=192.168.0.192
+weather_status=fetching
+weather_status=online
+rtc_set_status=online
+time_sync_status=online
+heartbeat uptime_ms=32104 free_heap=202920 display=online touch=online detail=online
+```
+
+Free heap stayed between 202,868 and 202,920 bytes from 8 through 32 seconds.
+The final personalized binary is 1,643,984 bytes with SHA-256
+`d2c4374080ba323af1bdeddb07d512fd8913b3ae9c213c4895e783aae282a97e`.
+This is successful runtime evidence for the corrected chunked path and the
+existing RTC/display/touch invariants.
+
 ## Screenshot evidence
 
 All listed files were inspected as valid, non-interlaced 360 x 360 RGB PNGs. Framebuffer and physical-panel checks are separate: a correct PNG proves LVGL/mirroring output, not the physical LCD transport.
@@ -138,6 +175,8 @@ All listed files were inspected as valid, non-interlaced 360 x 360 RGB PNGs. Fra
 | Milestone 4.1 final Clock frame A | `artifacts/jarvis-clock-rtc-final-a.png` | `405f8568e6659e49ced8d7cf2f1309a850b948e2646a0c9827a1d9cdfdf6dd49` |
 | Milestone 4.1 final Clock frame B | `artifacts/jarvis-clock-rtc-final-b.png` | `3ed93f918a57974c93472f25e7bc0318f5089972e990224f2ca5547b65584d72` |
 | Milestone 4.1 final Clock frame C | `artifacts/jarvis-clock-rtc-final-c.png` | `5e0d0b301db627acd39233bdf6aaf5a2dfdd5dac198fbfeab673ac09d88dd39e` |
+| Milestone 4.2 live Weather | `artifacts/jarvis-m4-2-weather-live.png` | `7902cf5a4ef426552e15ef9d701af978bf063f3684e5748097410da2dbd7d444` |
+| Milestone 4.2 post-weather Clock regression | `artifacts/jarvis-m4-2-clock-live.png` | `7c63c81a717a30bc6bc707e0dd3633867eda7a6ec95b01eefdde7990205a637d` |
 
 All three final Milestone 4.1 frames show `15:48` and `2026-08-27`, matching
 the America/Phoenix host clock at capture time. Local pixel analysis reports
@@ -160,6 +199,7 @@ Pinned dependencies, installed under ignored `.arduino/`:
 - LVGL `8.3.10`
 - ESP32 Display Panel `0.1.8`
 - ESP32 IO Expander `0.0.4`
+- ArduinoJson `7.4.3`
 - Bundled esptool `4.6`
 
 Exact FQBN:
@@ -183,7 +223,7 @@ python3 scripts/capture_screen.py --self-test
 python3 -m py_compile scripts/capture_screen.py
 ```
 
-Milestone 4.1 hardware-free validation, which deliberately bypasses the
+Milestone 4.2 hardware-free validation, which deliberately bypasses the
 ignored credential header and does not touch a serial device, is:
 
 ```sh
@@ -192,6 +232,13 @@ make build NO_SECRETS=1
 python3 scripts/capture_screen.py --self-test
 python3 -m py_compile scripts/capture_screen.py
 ```
+
+All four commands passed on 2026-08-27. The corrected no-secrets build uses
+1,643,585 bytes of program storage (52%) and 116,392 bytes of global RAM (35%),
+leaving 211,288 bytes for local variables. These commands are software-only
+evidence: the correction pass produced no upload, new runtime API response,
+serial state, heap observation, screenshot, or physical LCD result. The
+earlier `-1003` device evidence remains a failed pre-correction run.
 
 Do not run upload and monitor concurrently. The native USB CDC port can
 re-enumerate after upload; press RESET if the application does not start. The
@@ -225,10 +272,15 @@ because the ignored credentials are compiled into that local firmware image.
 - RTC write success requires a validated readback equal to the requested local value or exactly one second later, including date rollover. Transport failure, invalid BCD/ranges, oscillator-stop, or mismatch stays nonfatal and leaves display/touch operation intact.
 - The time-sync service is main-loop polled and once-per-boot. It waits for `wifi_service_snapshot().state == kOnline`, requests `configTzTime("MST7", ...)` with two public servers, requires SNTP's completed status, and polls `time()` plus `localtime_r()` without `getLocalTime()` or delay loops. It rejects system years before 2024, returns to retryable waiting if Wi-Fi drops, and reports only state—not credentials.
 - The Clock's existing 1000 ms LVGL timer remains the sole UI time updater. Once RTC read status becomes online, fallback labels and all three arcs update automatically from RTC values.
+- The weather service requests only Open-Meteo current temperature, humidity, WMO code, 10 m wind, and surface pressure for fixed Ashford coordinates `51.14648,0.87376` in `Europe/London`. A bounded 8 KiB FreeRTOS worker performs DNS/TLS/HTTP and ArduinoJson stream parsing behind an exact 4096-byte decoded-body ceiling; it never calls LVGL or exposes heap-owned strings.
+- Known `Content-Length` values above the ceiling fail before parsing. Unknown lengths are allowed. Because ESP32 core 3.0.7 exposes raw chunk framing through `HTTPClient::getStreamPtr()`, a pull-based decoder handles `Transfer-Encoding: chunked` before the bounded reader. ArduinoJson still reads directly from that adapter; no full response buffer is introduced. After JSON parsing stops, the reader drains only to decoded EOF or byte 4097 so exact-limit input succeeds and oversized input fails closed.
+- Weather values are range-checked before a fixed-size snapshot is published under a short critical section. The main-loop scheduler fetches immediately after first online Wi-Fi, refreshes no sooner than 15 minutes after success, retries no sooner than 60 seconds after failure, handles `millis()` rollover by unsigned subtraction, and preserves valid cached data across later failure/offline states.
+- The UI owns separate Clock Wi-Fi and Weather widget groups. A main-thread LVGL timer performs change-aware ASCII-only updates for temperature, WMO description, compact humidity/wind/pressure metrics, and provider-local `Updated HH:MM` state.
+- Prototype TLS uses `WiFiClientSecure::setInsecure()`: the credential-free request remains encrypted but the server certificate is not authenticated. There is no plaintext fallback; production hardening requires a maintained CA trust anchor.
 - Without an RTC backup battery, NTP-to-RTC initialization is expected once per powered boot and time retention across unplugging is not expected.
 - LVGL exposes exactly one horizontal tileview with Clock, Weather, Bins, Alarm, Radio, and MP3 at columns 0 through 5. It snaps one tile at a time with no scrollbar and keeps meaningful content inside the circular safe area.
-- The Clock tile reads RTC state from a 1000 ms LVGL timer. A separate main-thread LVGL timer polls a value snapshot from the Wi-Fi service and updates Clock/Weather only there.
-- Wi-Fi is station-only and non-blocking: credentials come from ignored `secrets.h`, missing/empty values remain unconfigured, persistent writes are disabled, one bounded boot attempt starts after the UI, and card taps enqueue retries. Logs exclude SSID/password. Weather data and the four application services remain placeholders.
+- The Clock tile reads RTC state from a 1000 ms LVGL timer. Separate main-thread LVGL timers poll fixed-size Wi-Fi and Weather snapshots; no network worker calls LVGL.
+- Wi-Fi is station-only and non-blocking: credentials come from ignored `secrets.h`, missing/empty values remain unconfigured, persistent writes are disabled, one bounded boot attempt starts after the UI, and card taps enqueue retries. Logs exclude SSID/password. Bins, Alarm, Radio, and MP3 remain placeholders.
 - The tileview and all six tiles are retained by the UI shell. Serial `tile N` selects indices 0 through 5 with animation off and refreshes on the main thread. Host `--tile` waits for acknowledgement and a display-loop interval before preserving the strict screenshot framing.
 - `LV_MEM_SIZE` remains 64 KiB. The corrected hardware run reports `ui_heap_internal_free=275440`, which remains stable in subsequent heartbeats.
 - Preserve tile geometry created by `lv_tileview_add_tile()`: removing all styles from a tile also erases its constructor-assigned size and column position, collapsing all six tiles and leaving the last-created MP3 content on top. The corrected helper styles the background without clearing tile styles, then explicitly selects Clock after layout.
@@ -288,9 +340,14 @@ Factory recovery is destructive and outside routine development. Verify the targ
 | `firmware/project_jarvis/rtc_pcf85063.h/.cpp` | Validated shared-I2C0 PCF85063 read plus write/readback service |
 | `firmware/project_jarvis/time_sync_service.h/.cpp` | Non-blocking once-per-boot Phoenix SNTP-to-RTC orchestration |
 | `firmware/project_jarvis/wifi_service.h/.cpp` | Non-blocking station state, bounded timeout, safe snapshot, and retry request |
+| `firmware/project_jarvis/weather_service.h/.cpp` | Bounded worker fetch, validated Open-Meteo parsing, scheduling, cached state, and synchronized snapshot |
+| `firmware/project_jarvis/weather_response_reader.h` | Host-testable decoded-body limiter and lazy HTTP chunk decoder used by ArduinoJson |
+| `firmware/project_jarvis/weather_format.h/.cpp` | Hardware-free WMO mapping, range validation, rounding, metrics, and observation-time formatting |
 | `firmware/project_jarvis/secrets.example.h` | Tracked empty credential shape; local `secrets.h` stays ignored |
 | `firmware/project_jarvis/ui_shell.h/.cpp` | Horizontal six-tile shell, dynamic Clock/Weather state, tappable card, and bounded selection |
 | `tests/rtc_datetime_test.cpp` | Host coverage for validation, BCD, oscillator-stop handling, and rollover acceptance |
+| `tests/weather_format_test.cpp` | Host coverage for WMO groups/unknowns, rounding, ASCII metrics, time extraction, and invalid ranges |
+| `tests/weather_response_reader_test.cpp` | Host coverage for under/exact/over-limit reads plus valid and invalid chunk framing |
 | `firmware/project_jarvis/ESP_Panel_Board_Custom.h` | Confirmed EXIO resets, I2C0 touch profile, 80 MHz clock, and vendor-init hook |
 | `firmware/project_jarvis/st77916_revision_02_init.h` | Provenanced revision-02 vendor command sequence |
 | `firmware/project_jarvis/ESP_Panel_Conf.h` | Panel logging and library compatibility configuration |
@@ -331,13 +388,14 @@ Completed:
 6. Milestone 3 implementation and hardware boot: validated PCF85063 reader, Clock tile, Weather placeholder, and four title-only placeholders in a horizontal six-tile shell; pinned build, ready boot, stable heap, and initial Clock framebuffer pass.
 7. Milestone 4 implementation and hardware proof: ignored local credentials, non-blocking station connection/retry, main-thread dynamic Clock/Weather labels, deterministic serial/host tile selection, ready boot, online Wi-Fi, stable heap, and six visually reviewed framebuffers.
 8. Milestone 4.1 implementation and hardware proof: non-blocking completed-SNTP `MST7` orchestration, validated shared-I2C0 RTC write/readback, once-per-boot state, host calendar/BCD/rollover tests, personalized build/upload, successful runtime status, stable heap, and three advancing full Clock captures.
+9. Milestone 4.2 implementation, failure diagnosis, correction, and hardware proof: fixed Ashford Open-Meteo request, bounded worker, observed HTTP-200 chunked-length failure `-1003`, direct de-chunked parsing behind the strict response cap, validated fixed-size cached snapshot, five UI states, ASCII formatting, pinned ArduinoJson 7.4.3, host helper/reader tests, personalized build/upload, `weather_status=online`, stable heap, and visually reviewed live Weather plus Clock framebuffers.
 
 Remaining / unverified:
 
 1. Physically tap the Clock card to prove its connect/retry handler and verify horizontal swiping, including a drag begun on the clickable card.
 2. Exercise a controlled failure/retry or reconnect only when useful; automatic successful connection and stable active-Wi-Fi heap are already proven.
 3. Confirm behavior after a full USB power removal if needed; without backup power, retention across unplugging is not expected and NTP should initialize the RTC again.
-4. Add live weather data; connectivity alone deliberately leaves temperature and metrics unavailable.
+4. Exercise Weather failure, retry, and offline-cached behavior on hardware only if useful.
 5. Specify and implement Bins, Alarm, Radio, and MP3 services.
 6. Optionally add audio, microphone, IMU, microSD, and battery/power management.
 
@@ -347,7 +405,7 @@ Remaining / unverified:
 2. Run `git status --short --branch`; preserve all unrelated/untracked work. This repository currently has no commits, so do not mistake existing untracked files for disposable output.
 3. Verify hashes before relying on a backup or named screenshot.
 4. Keep `.arduino/`, `backups/`, and existing `artifacts/` unchanged; never patch dependency sources.
-5. Milestone 4.1 is uploaded and its three advancing Clock framebuffers are captured. Re-upload only after a source or local credential change.
-6. On boot, require the invariant status lines above and stable heartbeats; treat any deviation as new evidence.
+5. Milestone 4.2 is the last successful hardware-verified firmware. Preserve the initial `-1003` failure as diagnosis evidence and the final `weather_status=online`, stable-heartbeat, Weather framebuffer, and Clock regression capture as correction evidence.
+6. Future Weather changes must retain `weather_status=waiting_wifi|fetching|online|failed|offline_cached`, the existing boot invariants, stable heartbeats, and the exact decoded-body cap.
 7. Compare framebuffer PNG and physical LCD independently.
-8. All six framebuffer images are inspected; keep them separate from the still-pending physical card-tap/swipe proof.
+8. Historical six-tile images predate live weather. Keep them separate from the final Milestone 4.2 tile-1 capture and the still-pending physical card-tap/swipe proof.

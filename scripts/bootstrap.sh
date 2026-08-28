@@ -15,5 +15,6 @@ arduino-cli core install esp32:esp32@3.0.7 --config-file "$cli_config"
 arduino-cli lib install "lvgl@8.3.10" --config-file "$cli_config"
 arduino-cli lib install "ESP32_IO_Expander@0.0.4" --config-file "$cli_config"
 arduino-cli lib install "ESP32_Display_Panel@0.1.8" --config-file "$cli_config"
+arduino-cli lib install "ArduinoJson@7.4.3" --config-file "$cli_config"
 
 echo "Project dependencies are installed under $project_root/.arduino"

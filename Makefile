@@ -27,13 +27,33 @@ build:
 
 test:
 	@rtc_test_bin="$$(mktemp -t jarvis-rtc-test.XXXXXX)"; \
-	trap 'rm -f "$$rtc_test_bin"' EXIT; \
+	weather_test_bin="$$(mktemp -t jarvis-weather-test.XXXXXX)"; \
+	weather_reader_test_bin="$$(mktemp -t jarvis-weather-reader-test.XXXXXX)"; \
+	location_test_bin="$$(mktemp -t jarvis-location-test.XXXXXX)"; \
+	trap 'rm -f "$$rtc_test_bin" "$$weather_test_bin" "$$weather_reader_test_bin" "$$location_test_bin"' EXIT; \
 	$(CXX) -std=c++11 -Wall -Wextra -Werror \
 		-Ifirmware/project_jarvis \
 		tests/rtc_datetime_test.cpp \
 		firmware/project_jarvis/rtc_datetime.cpp \
 		-o "$$rtc_test_bin"; \
-	"$$rtc_test_bin"
+	"$$rtc_test_bin"; \
+	$(CXX) -std=c++11 -Wall -Wextra -Werror \
+		-Ifirmware/project_jarvis \
+		tests/weather_format_test.cpp \
+		firmware/project_jarvis/weather_format.cpp \
+		-o "$$weather_test_bin"; \
+	"$$weather_test_bin"; \
+	$(CXX) -std=c++11 -Wall -Wextra -Werror \
+		-Ifirmware/project_jarvis \
+		tests/weather_response_reader_test.cpp \
+		-o "$$weather_reader_test_bin"; \
+	"$$weather_reader_test_bin"; \
+	$(CXX) -std=c++11 -Wall -Wextra -Werror \
+		-Ifirmware/project_jarvis \
+		tests/location_config_test.cpp \
+		firmware/project_jarvis/location_config.cpp \
+		-o "$$location_test_bin"; \
+	"$$location_test_bin"
 
 upload:
 	@test -n "$(PORT)" || (echo "Usage: make upload PORT=/dev/cu.usbmodem..." >&2; exit 1)

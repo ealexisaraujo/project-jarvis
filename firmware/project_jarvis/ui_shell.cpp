@@ -6,7 +6,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "location_config.h"
 #include "rtc_pcf85063.h"
+#include "weather_format.h"
+#include "weather_service.h"
 #include "wifi_service.h"
 
 namespace {
@@ -31,12 +34,18 @@ struct ClockWidgets {
 
 struct WifiWidgets {
   lv_obj_t* clock_label;
+};
+
+struct WeatherWidgets {
+  lv_obj_t* temperature;
   lv_obj_t* weather_description;
+  lv_obj_t* metrics;
   lv_obj_t* weather_status;
 };
 
 ClockWidgets clock_widgets = {};
 WifiWidgets wifi_widgets = {};
+WeatherWidgets weather_widgets = {};
 lv_obj_t* tileview_widget = nullptr;
 lv_obj_t* tile_widgets[kTileCount] = {};
 
@@ -131,28 +140,86 @@ void update_wifi(lv_timer_t* timer) {
   const WifiServiceSnapshot snapshot = wifi_service_snapshot();
   switch (snapshot.state) {
     case WifiServiceState::kUnconfigured:
-      lv_label_set_text(wifi_widgets.clock_label, LV_SYMBOL_REFRESH "  WiFi setup");
-      lv_label_set_text(wifi_widgets.weather_description, "WiFi setup required");
-      lv_label_set_text(wifi_widgets.weather_status, "No WiFi");
+      set_label_text_if_changed(wifi_widgets.clock_label,
+                                LV_SYMBOL_REFRESH "  WiFi setup");
       break;
     case WifiServiceState::kConnecting:
-      lv_label_set_text(wifi_widgets.clock_label, LV_SYMBOL_REFRESH "  Connecting...");
-      lv_label_set_text(wifi_widgets.weather_description, "Connecting WiFi...");
-      lv_label_set_text(wifi_widgets.weather_status, "Connecting");
+      set_label_text_if_changed(wifi_widgets.clock_label,
+                                LV_SYMBOL_REFRESH "  Connecting...");
       break;
-    case WifiServiceState::kOnline: {
-      lv_label_set_text(wifi_widgets.clock_label, LV_SYMBOL_REFRESH "  WiFi online");
-      lv_label_set_text(wifi_widgets.weather_description, "WiFi connected");
-      char status_text[20] = {};
-      snprintf(status_text, sizeof(status_text), "IP %s", snapshot.ipv4);
-      lv_label_set_text(wifi_widgets.weather_status, status_text);
+    case WifiServiceState::kOnline:
+      set_label_text_if_changed(wifi_widgets.clock_label,
+                                LV_SYMBOL_REFRESH "  WiFi online");
       break;
-    }
     case WifiServiceState::kFailed:
     case WifiServiceState::kDisconnected:
-      lv_label_set_text(wifi_widgets.clock_label, LV_SYMBOL_REFRESH "  Retry WiFi");
-      lv_label_set_text(wifi_widgets.weather_description, "Weather unavailable");
-      lv_label_set_text(wifi_widgets.weather_status, "No WiFi");
+      set_label_text_if_changed(wifi_widgets.clock_label,
+                                LV_SYMBOL_REFRESH "  Retry WiFi");
+      break;
+  }
+}
+
+void update_weather(lv_timer_t* timer) {
+  (void)timer;
+  const WeatherServiceSnapshot snapshot = weather_service_snapshot();
+  if (snapshot.has_valid_data) {
+    char temperature_text[12] = {};
+    char metrics_text[48] = {};
+    if (weather_format_temperature(temperature_text,
+                                   sizeof(temperature_text),
+                                   snapshot.values.temperature_c)) {
+      set_label_text_if_changed(weather_widgets.temperature, temperature_text);
+    }
+    set_label_text_if_changed(weather_widgets.weather_description,
+                              weather_code_description(snapshot.values.weather_code));
+    if (weather_format_metrics(metrics_text,
+                               sizeof(metrics_text),
+                               snapshot.values.humidity_percent,
+                               snapshot.values.wind_speed_kmh,
+                               snapshot.values.surface_pressure_hpa)) {
+      set_label_text_if_changed(weather_widgets.metrics, metrics_text);
+    }
+  } else {
+    set_label_text_if_changed(weather_widgets.temperature, "-- C");
+    set_label_text_if_changed(weather_widgets.metrics,
+                              "H --%  W -- km/h  P -- hPa");
+  }
+
+  switch (snapshot.state) {
+    case WeatherServiceState::kWaitingWifi:
+      if (!snapshot.has_valid_data) {
+        set_label_text_if_changed(weather_widgets.weather_description,
+                                  "Waiting for WiFi");
+      }
+      set_label_text_if_changed(weather_widgets.weather_status,
+                                "Waiting for WiFi");
+      break;
+    case WeatherServiceState::kFetching:
+      if (!snapshot.has_valid_data) {
+        set_label_text_if_changed(weather_widgets.weather_description,
+                                  "Fetching weather");
+      }
+      set_label_text_if_changed(weather_widgets.weather_status, "Fetching...");
+      break;
+    case WeatherServiceState::kOnline: {
+      char updated_text[20] = {};
+      if (weather_format_observation_time(updated_text,
+                                          sizeof(updated_text),
+                                          snapshot.observation_time)) {
+        set_label_text_if_changed(weather_widgets.weather_status, updated_text);
+      }
+      break;
+    }
+    case WeatherServiceState::kFailed:
+      if (!snapshot.has_valid_data) {
+        set_label_text_if_changed(weather_widgets.weather_description,
+                                  "Weather unavailable");
+      }
+      set_label_text_if_changed(weather_widgets.weather_status, "Update failed");
+      break;
+    case WeatherServiceState::kOfflineCached:
+      set_label_text_if_changed(weather_widgets.weather_status,
+                                "Offline - cached");
       break;
   }
 }
@@ -199,25 +266,31 @@ void create_clock_tile(lv_obj_t* tile) {
 }
 
 void create_weather_tile(lv_obj_t* tile) {
-  lv_obj_t* city = make_label(tile, "Ashford", &lv_font_montserrat_22, kWhite);
+  const LocationProfile& location = active_location_profile();
+  const char* city_name =
+      location_profile_is_valid(location) ? location.display_name
+                                          : "Invalid location";
+  lv_obj_t* city =
+      make_label(tile, city_name, &lv_font_montserrat_22, kWhite);
   lv_obj_align(city, LV_ALIGN_CENTER, 0, -92);
 
-  lv_obj_t* temperature = make_label(tile, "--", &lv_font_montserrat_48, kAmber);
-  lv_obj_align(temperature, LV_ALIGN_CENTER, 0, -34);
+  weather_widgets.temperature =
+      make_label(tile, "-- C", &lv_font_montserrat_48, kAmber);
+  lv_obj_align(weather_widgets.temperature, LV_ALIGN_CENTER, 0, -34);
 
-  wifi_widgets.weather_description =
-      make_label(tile, "Connecting WiFi...", &lv_font_montserrat_20, kWhite);
-  lv_obj_align(wifi_widgets.weather_description, LV_ALIGN_CENTER, 0, 24);
+  weather_widgets.weather_description =
+      make_label(tile, "Waiting for WiFi", &lv_font_montserrat_20, kWhite);
+  lv_obj_align(weather_widgets.weather_description, LV_ALIGN_CENTER, 0, 24);
 
-  lv_obj_t* metrics = make_label(tile,
-                                 "Humidity --  Wind --  Pressure --",
-                                 &lv_font_montserrat_14,
-                                 kMuted);
-  lv_obj_align(metrics, LV_ALIGN_CENTER, 0, 65);
+  weather_widgets.metrics = make_label(tile,
+                                       "H --%  W -- km/h  P -- hPa",
+                                       &lv_font_montserrat_14,
+                                       kMuted);
+  lv_obj_align(weather_widgets.metrics, LV_ALIGN_CENTER, 0, 65);
 
-  wifi_widgets.weather_status =
-      make_label(tile, "No WiFi", &lv_font_montserrat_14, kCyan);
-  lv_obj_align(wifi_widgets.weather_status, LV_ALIGN_CENTER, 0, 101);
+  weather_widgets.weather_status =
+      make_label(tile, "Waiting for WiFi", &lv_font_montserrat_14, kCyan);
+  lv_obj_align(weather_widgets.weather_status, LV_ALIGN_CENTER, 0, 101);
 }
 
 void create_placeholder_tile(lv_obj_t* tile, const char* title) {
@@ -258,6 +331,8 @@ void ui_shell_create() {
 
   lv_timer_create(update_wifi, 500, nullptr);
   update_wifi(nullptr);
+  lv_timer_create(update_weather, 500, nullptr);
+  update_weather(nullptr);
   lv_obj_update_layout(tileview_widget);
   lv_obj_set_tile(tileview_widget, tile_widgets[0], LV_ANIM_OFF);
 
